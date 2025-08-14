@@ -2,16 +2,15 @@
 // @name        Autofill Heno from Hippo Scribe
 // @namespace   http://tampermonkey.net/
 // @description Processes text copied from Hippo Scribe and auto fills Heno fields.
-// @version     1.2
+// @version     1.3
 // @author      You
 // @match       https://heno-prod2.com/ords/r/hrst/emr/*
-// @inject-into content
+// @match       https://heno-prod2.com/ords/f?p=*
 // @grant       GM_setClipboard
 // @grant       GM_download
 // @grant       GM_xmlhttpRequest
 // @grant       GM_addStyle
 // @connect     fonts.googleapis.com
-// @description 6/14/2024, 3:43:52 PM
 // @run-at      document-idle
 // @require     https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js
 // ==/UserScript==
@@ -23,47 +22,98 @@ function main_function() {
   var currentUrl = window.location.href;
   // main function
   if (!window.top === window.self) {
-  log("Not running script: window not top window.");
-  return true
+    log("Not running script: window not top window.");
+    return true
   }
-  if (window.location !== window.parent.location){
-  log("Not running script: The page is in an iframe");
-  return true
+  if (window.location !== window.parent.location) {
+    log("Not running script: The page is in an iframe");
+    return true
   }
   const mycase = 1;
   if ( mycase == 1 ) {
     log("RunMode1: run before document loads");
-    execute_script();
+    execute_script($);
     window.jQuery.noConflict(true);
   } else if ( mycase == 2 ) {
-    log("RunMode 2: run with delay after document loads");
+    log("RunMode2: run with delay after document loads");
     jQuery( document ).ready(function( $ ) {
       log("RunMode2: running main_function");
       window.setTimeout(function(){
-      execute_script();
-      // window.jQuery.noConflict(true);
+      execute_script($);
       }, 10000);
     });
     window.jQuery.noConflict(true);
-  }  else if ( mycase == 3 ) {
+  } else if ( mycase == 3 ) {
     log("RunMode3: run after document loads");
     jQuery( document ).ready(function( $ ) {
       log("RunMode3: running main_function");
-      execute_script();
-      // window.jQuery.noConflict(true);
+      execute_script($);
     });
     window.jQuery.noConflict(true);
   }
 }
 
-function execute_script() {
+function get_doc_type() {
+  log("get_doc_type called.");
+  let doc_type = ""; // Declare the variable to hold the document type
+  let autofiller = null;
+
+  const currentUrl = window.location.href;
+  const regex = /^https:\/\/heno-prod2\.com\/ords\/r\/hrst\/emr\/(\d+)\?.*$/;
+  const match = currentUrl.match(regex);
+
+  if (match) {
+    // The first captured group (the number) is at index 1 of the match array.
+    const id = parseInt(match[1], 10);
+    switch (id) {
+      case 339:
+        doc_type = 'SCHEDULE';
+        break;
+      case 4:
+        doc_type = 'EVAL';
+        autofiller = Autofill_Eval;
+        break;
+      case 242:
+        doc_type = 'DAILY_NOTE';
+        autofiller = Autofill_Daily_Note;
+        break;
+      case 89:
+        doc_type = 'PROGRESS_NOTE';
+        // autofiller = Autofill_Progress_Note;
+        break;
+      case 94:
+        doc_type = 'DISCHARGE';
+        // autofiller = Autofill_Discharge;
+        break;
+      default:
+        // This block will run if the ID doesn't match any of the cases above
+        doc_type = 'UNKNOWN'; // Or null, or handle as an error
+        break;
+    }
+  } else {
+    // example: https://heno-prod2.com/ords/f?p=102:267:600822671002856::::P267_SLOT_RESOURCE_KEY,P267_CLICKED_START,P267_CLICKED_END:3351,2025-08-14T18:45:00,2025-08-14T19:00:00
+    if (currentUrl.match(/^https:\/\/heno-prod2\.com\/ords\/f\?.*P(267).*$/)) {
+      doc_type = 'CREATE_SCHEDULE_SLOT';
+    }
+  }
+  log(`The Document Type is: ${doc_type}`);
+  log(`autofiller is: ${autofiller}`);
+  return [doc_type, autofiller];
+}
+
+function execute_script($) {
   const [doc_type, autofiller] = get_doc_type();
   if (autofiller !== null) {
     create_paste_button($, autofiller);
   }
   // Make the schedual page less ass.
   if (doc_type == "SCHEDULE") {
-      Render_qTip_Links_InPlace();
+      Render_qTip_Links_InPlace($);
+  }
+  // Make the schedual page less ass.
+  if (doc_type == "CREATE_SCHEDULE_SLOT") {
+      create_schedule_autofill_location($);
+      // create_schedule_autofill_slot_type($);
   }
 }
 
@@ -214,57 +264,12 @@ function input_text_area(textarea, input_text) {
   textarea.focus();
   textarea.value = input_text
   let event = new Event('input', { bubbles: true });
-  event.simulated = true; // hack React15
+  event.simulated = true; // React15
   textarea.dispatchEvent(event);
   format_text_area(textarea)
 }
 
-function get_doc_type() {
-  log("get_doc_type called.");
-  let doc_type = ""; // Declare the variable to hold the document type
-  let autofiller = null;
-
-  const currentUrl = window.location.href;
-  const regex = /^https:\/\/heno-prod2\.com\/ords\/r\/hrst\/emr\/(\d+)\?.*$/;
-  const match = currentUrl.match(regex);
-
-  if (match) {
-    // The first captured group (the number) is at index 1 of the match array.
-    const id = parseInt(match[1], 10);
-    switch (id) {
-      case 339:
-        doc_type = 'SCHEDULE';
-        break;
-      case 4:
-        doc_type = 'EVAL';
-        autofiller = Autofill_Eval;
-        break;
-      case 242:
-        doc_type = 'DAILY_NOTE';
-        autofiller = Autofill_Daily_Note;
-        break;
-      case 89:
-        doc_type = 'PROGRESS_NOTE';
-        // TODO:
-        // autofiller = Autofill_Progress_Note;
-        break;
-      case 94:
-        doc_type = 'DISCHARGE';
-        // TODO:
-        // autofiller = Autofill_Discharge;
-        break;
-      default:
-        // This block will run if the ID doesn't match any of the cases above
-        doc_type = 'UNKNOWN'; // Or null, or handle as an error
-        break;
-    }
-  }
-  log(`The Document Type is: ${doc_type}`);
-  log(`autofiller is: ${autofiller}`);
-  return [doc_type, autofiller];
-}
-
-function Render_qTip_Links_InPlace() {
+function Render_qTip_Links_InPlace($) {
     'use strict';
 
     // --- Configuration ---
@@ -308,7 +313,7 @@ function Render_qTip_Links_InPlace() {
         linkContainer.style.cursor = 'default';
 
 
-        // FIX: Stop clicks on the container from triggering the parent link's default action (navigation).
+        // my fix: Stop clicks on the container from triggering the parent link's default action (navigation).
         linkContainer.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -392,7 +397,6 @@ function Render_qTip_Links_InPlace() {
         subtree: true
     });
 };
-
 
 class Autofill_Eval{
   static autofill_button_text_display='Autofill Eval from Clipboard'
@@ -546,7 +550,8 @@ class Autofill_Daily_Note {
 
     // ==================================================
     // Objective: Do not change (Ben: Format for readability)
-    format_text_area(this.textarea_Obj);
+    let hippo_Obj = StringUtils.grabTextSection(hippo_full, "Objective", "Assessment");
+    input_text_area(this.textarea_Obj, hippo_Obj);
 
     // ==================================================
     // Assessment:
@@ -577,4 +582,142 @@ function log(x){ console.log(`[${GM_info.script.name}]`, ...arguments); };
 function sleep(ms){return new Promise(resolve => setTimeout(resolve, ms)); }
 
 
-main_function()
+function create_schedule_autofill_location($) {
+    /**
+     * Selects a value in a standard dropdown menu.
+     */
+    log("create_schedule_autofill_location called.");
+    try {
+        const locationSelect = document.getElementById("P267_LOCATION");
+        if (locationSelect && locationSelect.value !== "5403") {
+            locationSelect.value = "5403";
+            const event = new Event('change', { bubbles: true });
+            event.simulated = true; // React15
+            locationSelect.dispatchEvent(event);
+            console.log(`Userscript: Successfully selected location "5403".`);
+        } else if (locationSelect) {
+            console.log('Userscript: Location already selected.');
+        } else {
+            console.log('Userscript: Location select element not found.');
+        }
+    } catch (error) {
+        console.error('Userscript Error (selectLocation):', error);
+    }
+}
+
+function create_schedule_autofill_slot_type($) {
+    log("create_schedule_autofill_slot_type called.");
+    // --- Configuration ---
+    const SLOT_TYPE_BUTTON_ID = 'P267_SLOT_TYPE_KEY_lov_btn';
+    const SLOT_TYPE_TEXT_TO_SELECT = 'Follow Up Treatment';
+    const POPUP_DIALOG_SELECTOR = 'div.ui-dialog-popuplov';
+    const POPUP_LIST_ITEM_SELECTOR = 'li.a-IconList-item';
+    // ---------------------
+
+    /**
+     * Clicks a button to open a popup and selects an item from the list.
+     */
+    function selectSlotType() {
+        try {
+            const lovButton = document.getElementById(SLOT_TYPE_BUTTON_ID);
+            if (!lovButton) {
+                console.log('Userscript: Slot Type LOV button not found.');
+                return;
+            }
+
+            // This observer will watch for the popup dialog to be added to the page
+            const observer = new MutationObserver((mutationsList, obs) => {
+                for (const mutation of mutationsList) {
+                    if (mutation.type === 'childList') {
+                        const popupDialog = document.querySelector(POPUP_DIALOG_SELECTOR);
+                        if (popupDialog) {
+                            console.log('Userscript: Popup dialog detected.');
+                            // Stop observing once we find the dialog
+                            obs.disconnect();
+                            // Find and click the correct item in the list
+                            findAndClickListItem(popupDialog);
+                            return;
+                        }
+                    }
+                }
+            });
+
+            // Start observing the entire document body for new elements
+            observer.observe(document.body, { childList: true, subtree: true });
+
+            // Click the button to trigger the popup
+            let clickEvent = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                // view: window // The window context
+            });
+            clickEvent.simulated = true; // Potentially useful
+
+            // Dispatch the event on the element
+            lovButton.dispatchEvent(clickEvent);
+            console.log('Userscript: Clicked the Slot Type button to open popup.');
+
+        } catch (error) {
+            console.error('Userscript Error (selectSlotType):', error);
+        }
+    }
+
+    /**
+     * Finds a specific list item by its text content within the popup and clicks it.
+     * @param {HTMLElement} popupDialog - The popup dialog element.
+     */
+    function findAndClickListItem(popupDialog) {
+        try {
+            const listItems = popupDialog.querySelectorAll(POPUP_LIST_ITEM_SELECTOR);
+            const targetItem = Array.from(listItems).find(
+                item => item.textContent.trim() === SLOT_TYPE_TEXT_TO_SELECT
+            );
+
+            if (targetItem) {
+
+                // Click the button to trigger the popup
+                let clickEvent = new MouseEvent('click', {
+                    bubbles: true,
+                    cancelable: true,
+                    // view: window // The window context
+                });
+                clickEvent.simulated = true; // Potentially useful
+
+                // Dispatch the event on the element
+                targetItem.dispatchEvent(clickEvent);
+                console.log(`Userscript: Successfully selected slot type "${SLOT_TYPE_TEXT_TO_SELECT}".`);
+            } else {
+                console.log(`Userscript: Could not find slot type "${SLOT_TYPE_TEXT_TO_SELECT}" in the list.`);
+            }
+        } catch (error) {
+            console.error('Userscript Error (findAndClickListItem):', error);
+        }
+    }
+
+
+    // Run the script after the page has fully loaded
+    window.addEventListener('load', function() {
+        console.log('Userscript starting...');
+        // We add a small delay before interacting with the second component
+        // to ensure any scripts from the first interaction have completed.
+        setTimeout(() => {
+            const targetElement = document.getElementById('P267_SLOT_TYPE_KEY');
+            // targetElement.setAttribute('aria-expanded', 'true')
+            const lovButton = document.getElementById('P267_SLOT_TYPE_KEY_lov_btn');
+
+            // Click the button to trigger the popup
+            let clickEvent = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                // view: window // The window context
+            });
+            clickEvent.simulated = true; // Potentially useful
+            lovButton.dispatchEvent(clickEvent);
+
+            lovButton.click();
+            // setTimeout(selectSlotType, 5000);
+        }, 2000);
+    });
+}
+
+main_function();

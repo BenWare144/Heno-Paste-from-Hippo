@@ -2,7 +2,7 @@
 // @name        Autofill Heno from Hippo Scribe
 // @namespace   http://tampermonkey.net/
 // @description Processes text copied from Hippo Scribe and auto fills Heno fields.
-// @version     1.3
+// @version     1.3.2
 // @author      You
 // @match       https://heno-prod2.com/ords/r/hrst/emr/*
 // @match       https://heno-prod2.com/ords/f?p=*
@@ -247,6 +247,21 @@ class StringUtils{
   }
   return text;
   }
+  static splitTextInHalf(text) {
+    // Split text into lines
+    const lines = text.split(/\r?\n/);
+
+    // Find halfway point
+    const half = Math.ceil(lines.length / 2);
+
+    // First half
+    const part1 = lines.slice(0, half).join("\n");
+
+    // Second half
+    const part2 = lines.slice(half).join("\n");
+
+    return [part1, part2];
+  }
 }
 
 function format_text_area(textarea) {
@@ -257,16 +272,18 @@ function format_text_area(textarea) {
   textarea.style.height = (textarea.scrollHeight + 10) + 'px';
 }
 
-function input_text_area(textarea, input_text) {
+function input_text_area(textarea, input_text, debug=false) {
   // Function to input text into a textarea and trigger input events.
   // Also resizes the textarea to fit the content
   log("putting", input_text, "into", textarea);
-  textarea.focus();
-  textarea.value = input_text
-  let event = new Event('input', { bubbles: true });
-  event.simulated = true; // React15
-  textarea.dispatchEvent(event);
-  format_text_area(textarea)
+  if (!debug) {
+    textarea.focus();
+    textarea.value = input_text
+    let event = new Event('input', { bubbles: true });
+    event.simulated = true; // React15
+    textarea.dispatchEvent(event);
+    format_text_area(textarea)
+  }
 }
 
 function Render_qTip_Links_InPlace($) {
@@ -467,9 +484,23 @@ class Autofill_Eval{
     `Patient's HEP includes:` + "\n" // HEP (Home Exercise Plan)
     input_text_area(this.textarea_Ass, Assessment);
 
+    // Goals:
     // Short Term Goals:
-    let shortTermGoals_text = StringUtils.grabTextSection(hippo_full, "Short Term Goals (STGs):", "Long Term Goals (LTGs):");
+    let Goals_text = StringUtils.grabTextSection(hippo_full, "Goals:", "Long Term Goals (LTGs):");
+    log("Goals text:\n", Goals_text);
+    Goals_text = Goals_text.replace(/^###\s*/gm, '').replace(/:\s*$/gm, ''); // Clean up headers
+    log("cleaned Goals text:\n", Goals_text);
+
+    let shortTermGoals_text = StringUtils.grabTextSection(Goals_text, "Short Term Goals", "Long Term Goals");
+    log("shortTermGoals_text:\n", shortTermGoals_text);
+    let longTermGoals_text = StringUtils.grabTextSection(Goals_text, "Long Term Goals", null);
+    log("longTermGoals_text:\n", longTermGoals_text);
+    if (shortTermGoals_text.length === 0) {
+      log("fallback to alternative");
+      const [shortTermGoals_text, longTermGoals_text] = StringUtils.splitTextInHalf(Goals_text);
+    }
     shortTermGoals_text = StringUtils.truncateList(StringUtils.removeHeader(shortTermGoals_text), 5);
+    log("shortTermGoals_text:\n", shortTermGoals_text);
     // Now, manage each goal individually
     shortTermGoals_text.split('\n').filter(line => line.trim() !== '').forEach((line, i) => {
       const STG = line.replace(/^\d+\.\s*/, '')
@@ -478,8 +509,8 @@ class Autofill_Eval{
 
     // Long Term Goals:
     // Note: The generated long Term Goals "aren't worth a shit", so we paste in the first 3 short term goals instead.
-    let longTermGoals_text = StringUtils.grabTextSection(hippo_full, "Short Term Goals (STGs):", "Long Term Goals (LTGs):");
-    longTermGoals_text = StringUtils.truncateList(StringUtils.removeHeader(longTermGoals_text), 3);
+    longTermGoals_text = StringUtils.truncateList(StringUtils.removeHeader(longTermGoals_text), 5);
+    log("longTermGoals_text:\n", longTermGoals_text);
     longTermGoals_text.split('\n').filter(line => line.trim() !== '').forEach((line, i) => {
       const LTG = line.replace(/^\d+\.\s*/, '')
       input_text_area(this.textarea_LTGs[i], LTG);
@@ -494,12 +525,14 @@ class Autofill_Daily_Note {
   static textarea_Sub = "";
   static textarea_Obj = "";
   static textarea_Ass = "";
+  static textarea_Plan = "";
   static textarea_STGs = [];
   static textarea_LTGs = [];
 
   static selector_Sub = "textarea#P242_NOTE_SUBJECTIVE";
   static selector_Obj = "textarea#P242_NOTE_OBJECTIVE";
   static selector_Ass = "textarea#P242_NOTE_ASSESSMENT";
+  static selector_Plan = "textarea#P242_NOTE_PLAN";
   static selector_STG_i = "textarea#P242_STG_";
   static selector_LTG_i = "textarea#P242_LTG_";
 
@@ -513,6 +546,9 @@ class Autofill_Daily_Note {
 
     this.textarea_Ass = $(this.selector_Ass).get(0);
     log("textarea for 'Assessment:' field:\n", this.textarea_Ass);
+
+    this.textarea_Plan = $(this.selector_Plan).get(0);
+    log("textarea for 'Plan:' field:\n", this.textarea_Plan);
 
     this.textarea_STGs = [];
     for (let i = 1; i <= 5; i++) {
@@ -565,6 +601,14 @@ class Autofill_Daily_Note {
     Assessment += "\n\nPatient's HEP includes:\n" + old_Ass + "\n\n";
     log("input for 'Assessment:' field:\n", Assessment);
     input_text_area(this.textarea_Ass, Assessment);
+
+    let Plan = StringUtils.grabTextSection(hippo_full, "Plan", "Short Term Goals");
+    if (Plan.length === 0) {
+      Plan = StringUtils.grabTextSection(hippo_full, "Plan", "Home Exercise Program (HEP)");
+    }
+
+    log("input for 'Plan:' field:\n", Plan);
+    input_text_area(this.textarea_Plan, Plan);
 
     // Short Term Goals: Do not change (Ben: Format for readability)
     for (let i = 0; i < this.textarea_STGs.length; i++) {
@@ -679,7 +723,6 @@ function create_schedule_autofill_slot_type($) {
                 let clickEvent = new MouseEvent('click', {
                     bubbles: true,
                     cancelable: true,
-                    // view: window // The window context
                 });
                 clickEvent.simulated = true; // Potentially useful
 
@@ -709,7 +752,6 @@ function create_schedule_autofill_slot_type($) {
             let clickEvent = new MouseEvent('click', {
                 bubbles: true,
                 cancelable: true,
-                // view: window // The window context
             });
             clickEvent.simulated = true; // Potentially useful
             lovButton.dispatchEvent(clickEvent);
